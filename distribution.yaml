@@ -1,0 +1,9 @@
+name: br-analyst
+version: 0.1.0
+description: "Agente analista de negocio personalizado en retail omnicanal."
+author: "Hazu Low-Code Solutions / Store Intelligence"
+license: "MIT"
+
+distribution_owned:
+  - SOUL.md
+  - skills/extract-data/

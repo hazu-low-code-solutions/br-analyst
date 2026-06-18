@@ -1,0 +1,11 @@
+model:
+  default: glm-5.1
+  provider: ollama-cloud
+  base_url: https://ollama.com/v1
+
+agent:
+  max_turns: 90
+  gateway_timeout: 1800
+
+display:
+  language: es
