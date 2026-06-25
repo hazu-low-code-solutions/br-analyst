@@ -1,0 +1,331 @@
+{
+  "version": "1.5.0",
+  "model_source": "18062026.vpax",
+  "description": "Biblia de medidas: equivalentes SQL (Databricks) de las medidas DAX del modelo VIMA Sellout. Cada entry es autónomo y parametrizable por el agente.",
+  "dialect": "databricks_sql",
+
+  "report_tables": {
+    "note": "Mapa directo entre las tablas del reporte Business Review y su query_pattern en esta biblia. El agente debe usar este mapa para saber qué pattern ejecutar dado un nombre de tabla.",
+
+    "Venta Mes Anterior Cadena / Formato": {
+      "page":          "Business Review / Mensual — Mes Anterior",
+      "subtitle":      "(Mes Anterior {mes_nombre})",
+      "query_pattern": "table_by_retailer_categoria",
+      "params": {
+        "yyyymm_actual": "YYYYMM del mes anterior al reporte (ej: 202605 para reporte de junio 2026)",
+        "yyyymm_ly":     "yyyymm_actual - 100"
+      },
+      "columns_display": {
+        "retailer":    "Retailer",
+        "categoria":   "Categoría",
+        "YA_A_Valor":  "Ven Año Ant $",
+        "CM_Valor":    "Ven Año Act $",
+        "var_YA_Valor":"% Var $",
+        "YA_A_Uni":    "Ven Año Ant Uni",
+        "CM_Uni":      "Ven Año Act Uni",
+        "var_YA_Uni":  "% Var Uni",
+        "YA_A_Kg":     "Ven Año Ant Kg",
+        "CM_Kg":       "Año Act Kg",
+        "var_YA_Kg":   "var YA Kg%"
+      },
+      "format": {
+        "Valor": "#,0 (pesos)",
+        "Uni":   "#,0 (unidades)",
+        "Kg":    "#,0.## (kg — decimales visibles)",
+        "%":     "0.0% (multiplicar x100 al presentar)"
+      },
+      "verified": true
+    }
+  },
+
+  "query_patterns": {
+    "note": "Patrones para combinar medidas en una sola query. En DAX cada medida tiene su propio contexto de filtro; en SQL se replican con agregación condicional (CASE WHEN) en un solo scan.",
+
+    "scalar": {
+      "description": "Una medida, sin dimensiones. Para verificar totales.",
+      "example": "SELECT SUM(CASE WHEN CAST(numeric_day/100 AS INT) = {yyyymm_ly} THEN ventas END) AS YA_A_Azure FROM prod_etl.gold.vima_dashboard_daily WHERE CAST(numeric_day/100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})"
+    },
+
+    "table_by_retailer": {
+      "description": "Las N medidas agrupadas por retailer en un solo scan. Equivale a la tabla del visual PBI con filas por cadena.",
+      "available_now": true,
+      "template": "SELECT\n  d.retailer,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.{metric_col} END) AS YA_A_Azure,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.{metric_col} END) AS MTD_Azure,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.{metric_col} END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.{metric_col} END), 0)\n    - 1 AS var_YA_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\nGROUP BY d.retailer\nORDER BY d.retailer"
+    },
+
+    "table_by_retailer_valor_unidades": {
+      "description": "6 columnas (Valor + Unidades) por retailer en un solo scan. Patrón listo para usar — sin joins externos.",
+      "available_now": true,
+      "verified": true,
+      "columns": ["YA_A_Valor", "CM_Valor", "var_YA_Valor", "YA_A_Uni", "CM_Uni", "var_YA_Uni"],
+      "template": "SELECT\n  d.retailer,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.ventas    END) AS YA_A_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END) AS CM_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.ventas END), 0)\n    - 1 AS var_YA_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.unidades END) AS YA_A_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades END) AS CM_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.unidades END), 0)\n    - 1 AS var_YA_Uni\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\nGROUP BY d.retailer\nORDER BY d.retailer"
+    },
+
+    "table_by_retailer_categoria": {
+      "description": "9 columnas completas (Valor + Unidades + Kg) por Retailer → Categoría. Replica al 100% la tabla 'Venta Mes Anterior Cadena / Formato' del Business Review. Filtros: Formato ≠ Cedis, Categoría ≠ OUT.",
+      "available_now": true,
+      "verified": true,
+      "columns": ["retailer", "categoria", "YA_A_Valor", "CM_Valor", "var_YA_Valor", "YA_A_Uni", "CM_Uni", "var_YA_Uni", "YA_A_Kg", "CM_Kg", "var_YA_Kg"],
+      "notes": ["Kg = d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE). Contenido_del_Empaque está en kg. p.Gramaje siempre NULL — no usar.", "NULL en columnas YA = sin venta ese retailer/categoría en el año anterior — equivale a BLANK() en PBI."],
+      "template": "SELECT\n  d.retailer,\n  p.category                                                                                        AS categoria,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.ventas    END)           AS YA_A_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END)           AS CM_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.ventas END), 0)\n    - 1                                                                                             AS var_YA_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.unidades  END)           AS YA_A_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades  END)           AS CM_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades  END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.unidades END), 0)\n    - 1                                                                                             AS var_YA_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                           AS YA_A_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                           AS CM_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n                      THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END), 0)\n    - 1                                                                                             AS var_YA_Kg\nFROM prod_etl.gold.vima_dashboard_daily d\nJOIN prod_etl.segmentation.products p ON d.id_product_retailer = p.id_product_retailer\nJOIN prod_etl.segmentation.stores   s ON d.id_store = s.id_store\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\n  AND s.store_channel != 'Cedis'\n  AND p.category != 'OUT'\nGROUP BY d.retailer, p.category\nORDER BY d.retailer, p.category"
+    }
+  },
+
+  "source_tables": {
+    "daily":    "prod_etl.gold.vima_dashboard_daily",
+    "products": "prod_etl.segmentation.products",
+    "stores":   "prod_etl.segmentation.stores"
+  },
+
+  "column_mapping": {
+    "note": "Columnas reales confirmadas con DESCRIBE prod_etl.gold.vima_dashboard_daily",
+    "daily_table": {
+      "salesAmount":        "ventas",
+      "salesQty":           "unidades",
+      "Date":               "numeric_day (int YYYYMMDD — sin columna DATE directa)",
+      "idRetailer":         "id_retailer",
+      "idStore":            "id_store",
+      "IdRetailerProducto": "id_product_retailer",
+      "Retailer":           "retailer (ya desnormalizado en la tabla daily — sin join necesario)",
+      "id_chainstore":      "id_chainstore",
+      "QOH":                "QOH",
+      "AOH":                "AOH"
+    },
+    "date_filter_pattern": {
+      "description":     "numeric_day es int en formato YYYYMMDD. Para filtrar por mes se usa CAST(numeric_day / 100 AS INT) = YYYYMM.",
+      "full_month":      "CAST(numeric_day / 100 AS INT) = {yyyymm}",
+      "mtd":             "CAST(numeric_day / 100 AS INT) = {yyyymm} AND numeric_day <= {fecha_corte_int}",
+      "same_month_ly":   "CAST(numeric_day / 100 AS INT) = {yyyymm_ly}",
+      "example_may2025": "CAST(numeric_day / 100 AS INT) = 202505"
+    }
+  },
+
+  "dimension_columns": {
+    "stores": {
+      "table":           "prod_etl.segmentation.stores",
+      "join_key_daily":  "d.id_store = s.id_store",
+      "retailer_name":   "d.retailer (disponible directamente en la tabla daily — sin join necesario)",
+      "formato":         "s.store_channel",
+      "filter_no_cedis": "s.store_channel != 'Cedis'",
+      "store_channel_values": ["Autoservicio", "Autoservicio Deportivo", "Autoservicio Electronicos", "Autoservicio Gourmet", "Bodega", "Cedis", "Club de Precio", "Conveniencia", "Departamentales", "E-Commerce", "Express", "Farmacia", "Hipermercado", "Hipermercado Gourmet", "Mayorista", "Otros", "Super", "Supermercados", "Web"]
+    },
+    "products": {
+      "table":           "prod_etl.segmentation.products",
+      "join_key_daily":  "d.id_product_retailer = p.id_product_retailer",
+      "categoria":       "p.category  (lowercase — p.CATEGORIA uppercase está siempre NULL para productos VIMA)",
+      "filter_no_out":   "p.category != 'OUT'",
+      "gramaje":         "p.Contenido_del_Empaque (string en KG — p.Gramaje siempre NULL). Fórmula: d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE). Verificado ✅",
+      "other_cols":      ["p.subcategory", "p.brand", "p.Contenido_del_Empaque", "p.SECTOR_SUBCATEGORIA"]
+    }
+  },
+
+  "params_schema": {
+    "mes_actual": {
+      "type":        "DATE",
+      "format":      "YYYY-MM-01",
+      "description": "Primer día del mes analizado.",
+      "example":     "2026-05-01"
+    },
+    "yyyymm_actual": {
+      "type":        "INT",
+      "description": "Mes actual en formato YYYYMM. Derivado de mes_actual: YEAR * 100 + MONTH.",
+      "example":     202605,
+      "derive_from": "mes_actual"
+    },
+    "yyyymm_ly": {
+      "type":        "INT",
+      "description": "Mismo mes del año anterior en formato YYYYMM. Equivale a yyyymm_actual - 100.",
+      "example":     202505,
+      "derive_from": "yyyymm_actual - 100"
+    },
+    "fecha_corte_int": {
+      "type":        "INT",
+      "format":      "YYYYMMDD",
+      "description": "Última fecha con datos en formato entero. Para MTD parcial.",
+      "example":     20260615,
+      "derive_from": "fecha_corte"
+    },
+    "variable": {
+      "type":        "ENUM",
+      "options":     ["Valor", "Unidades", "Kilos"],
+      "default":     "Valor",
+      "description": "Tipo de métrica. Equivale a SELECTEDVALUE(Variable[Variable]) en PBI."
+    }
+  },
+
+  "measures": [
+
+    {
+      "id": "CM_Azure",
+      "meta": {
+        "display_name":  "Current Month",
+        "folder":        "Sellout",
+        "data_type":     "Double",
+        "format_string": "#,0",
+        "table":         "Medidas_Azure",
+        "measure_id":    829
+      },
+      "dax": {
+        "raw": "VAR _x1 = SELECTEDVALUE(Variable[Variable])\nRETURN\nSWITCH(\n\t_x1,\n\t\"Valor\",    CALCULATE(SUM(Dashboard_Monthly_Azure[salesAmount])),\n\t\"Unidades\", CALCULATE(SUM(Dashboard_Monthly_Azure[salesQty])),\n\t\"Kilos\",    CALCULATE(SUMX(VALUES(Dashboard_Products_Azure[SKU]), [CM Units_Azure]*[Gramos_Azure]))\n)",
+        "depends_on":            ["CM Units_Azure", "Gramos_Azure"],
+        "transitive_depends_on": []
+      },
+      "sql": {
+        "description": "Suma de ventas del mes completo. Filtro: CAST(numeric_day / 100 AS INT) = yyyymm_actual.",
+        "metric_map": {
+          "Valor":    { "col": "ventas",   "needs_products_join": false, "verified": true },
+          "Unidades": { "col": "unidades", "needs_products_join": false, "verified": true },
+          "Kilos":    { "col": "TODO",     "needs_products_join": true, "note": "requiere tabla productos pendiente" }
+        },
+        "templates": {
+          "Valor":    "SELECT\n  {dimensions}\n  SUM(d.ventas) AS CM_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n{group_by}",
+          "Unidades": "SELECT\n  {dimensions}\n  SUM(d.unidades) AS CM_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n{group_by}",
+          "Kilos":    "TODO: requiere tabla de productos"
+        },
+        "params": {
+          "yyyymm_actual": "ej: 202605 para mayo 2026",
+          "dimensions":    "columnas de agrupación — ej: 'd.retailer,' (con coma si hay group_by)",
+          "group_by":      "GROUP BY d.retailer  — o vacío si es escalar"
+        },
+        "translation_notes": [
+          "Dashboard_Monthly_Azure en PBI es pre-agregación mensual. Aquí CAST(numeric_day/100 AS INT) = yyyymm reproduce ese filtro con datos diarios.",
+          "retailer ya está en la tabla daily — no requiere join para agrupación por cadena."
+        ]
+      }
+    },
+
+    {
+      "id": "MTD_Azure",
+      "meta": {
+        "display_name":  "Month-to-Date",
+        "folder":        "Sellout",
+        "data_type":     "Double",
+        "format_string": "#,0",
+        "table":         "Medidas_Azure",
+        "measure_id":    911
+      },
+      "dax": {
+        "raw": "CALCULATE(\n\t[CM_Azure],\n\tDATESMTD('Calendar_daily_Azure'[Date])\n)",
+        "depends_on":            ["CM_Azure"],
+        "transitive_depends_on": ["CM Units_Azure", "Gramos_Azure"]
+      },
+      "sql": {
+        "description": "Suma de ventas desde el día 1 del mes hasta fecha_corte. DATESMTD = rango [inicio_mes, fecha_corte].",
+        "metric_map": {
+          "Valor":    { "col": "ventas",   "needs_products_join": false, "verified": true },
+          "Unidades": { "col": "unidades", "needs_products_join": false, "verified": true },
+          "Kilos":    { "col": "TODO",     "needs_products_join": true }
+        },
+        "templates": {
+          "Valor":    "SELECT\n  {dimensions}\n  SUM(d.ventas) AS MTD_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n  AND d.numeric_day <= {fecha_corte_int}\n{group_by}",
+          "Unidades": "SELECT\n  {dimensions}\n  SUM(d.unidades) AS MTD_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n  AND d.numeric_day <= {fecha_corte_int}\n{group_by}",
+          "Kilos":    "TODO: requiere tabla de productos"
+        },
+        "params": {
+          "yyyymm_actual":  "ej: 202605 para mayo 2026",
+          "fecha_corte_int":"ej: 20260615 — límite superior del MTD",
+          "dimensions":     "columnas de agrupación",
+          "group_by":       "GROUP BY ... o vacío si es escalar"
+        },
+        "translation_notes": [
+          "Con datos diarios, MTD es genuinamente parcial (días 1..fecha_corte). En PBI con Dashboard_Monthly_Azure siempre devuelve el mes completo porque Date = primer día del mes.",
+          "numeric_day <= fecha_corte_int funciona porque el formato YYYYMMDD es ordenable como entero."
+        ]
+      }
+    },
+
+    {
+      "id": "YA_A_Azure",
+      "meta": {
+        "display_name":  "Year Ago Actual",
+        "folder":        "Sellout",
+        "data_type":     "Double",
+        "format_string": "#,0",
+        "table":         "Medidas_Azure",
+        "measure_id":    916
+      },
+      "dax": {
+        "raw": "CALCULATE(\n\t[MTD_Azure],\n\tSAMEPERIODLASTYEAR(LASTDATE(Calendar_daily_Azure[Mes])),\n\tALL(Calendar_daily_Azure[Year])\n)",
+        "depends_on":            ["MTD_Azure"],
+        "transitive_depends_on": ["CM_Azure", "CM Units_Azure", "Gramos_Azure"]
+      },
+      "sql": {
+        "description": "Suma del mismo mes completo del año anterior. SAMEPERIODLASTYEAR(LASTDATE(Mes)) = mismo YYYYMM - 1 año = yyyymm_ly.",
+        "dax_resolution": {
+          "step_1": "LASTDATE(Calendar_daily_Azure[Mes]) en contexto may-2026 → '2026-05-01'",
+          "step_2": "SAMEPERIODLASTYEAR({'2026-05-01'}) → {'2025-05-01'}",
+          "step_3": "ALL(Calendar_daily_Azure[Year]) → elimina filtro de año (implícito)",
+          "step_4": "MTD_Azure sobre may-2025 completo → SUM(ventas) donde YYYYMM = 202505",
+          "sql_equivalent": "CAST(numeric_day / 100 AS INT) = {yyyymm_ly}  -- donde yyyymm_ly = yyyymm_actual - 100"
+        },
+        "metric_map": {
+          "Valor":    { "col": "ventas",   "needs_products_join": false, "verified": true },
+          "Unidades": { "col": "unidades", "needs_products_join": false, "verified": true },
+          "Kilos":    { "col": "TODO",     "needs_products_join": true }
+        },
+        "templates": {
+          "Valor":    "SELECT\n  {dimensions}\n  SUM(d.ventas) AS YA_A_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n{group_by}",
+          "Unidades": "SELECT\n  {dimensions}\n  SUM(d.unidades) AS YA_A_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n{group_by}",
+          "Kilos":    "TODO: requiere tabla de productos"
+        },
+        "params": {
+          "yyyymm_ly":  "mismo mes año anterior en formato YYYYMM. Derivar como: yyyymm_actual - 100. Ej: 202605 - 100 = 202505",
+          "dimensions": "mismas columnas que MTD_Azure para comparación paralela — ej: 'd.retailer,'",
+          "group_by":   "GROUP BY d.retailer  — o vacío si es escalar"
+        },
+        "translation_notes": [
+          "yyyymm_ly = yyyymm_actual - 100 funciona para cualquier mes: reduce el año en 1 y mantiene el mes intacto.",
+          "Retorna el mes COMPLETO del año anterior — sin corte por día. Si se necesita mismo día de corte, usar MTD_LY_MismoDia.",
+          "retailer ya está desnormalizado en la tabla daily — disponible en GROUP BY sin join."
+        ]
+      }
+    }
+
+    ,{
+      "id": "var_YA_Azure",
+      "meta": {
+        "display_name":  "% Variación vs Año Anterior",
+        "folder":        "Sellout",
+        "data_type":     "Double",
+        "format_string": "0.0%;-0.0%;0.0%",
+        "table":         "Medidas_Azure",
+        "measure_id":    833
+      },
+      "dax": {
+        "raw": "IF(\n\tOR([MTD_Azure] = BLANK(), [YA_A_Azure] = BLANK()),\n\tBLANK(),\n\tDIVIDE([MTD_Azure], [YA_A_Azure], 0) - 1\n)",
+        "depends_on":            ["MTD_Azure", "YA_A_Azure"],
+        "transitive_depends_on": ["CM_Azure", "CM Units_Azure", "Gramos_Azure"]
+      },
+      "sql": {
+        "description": "Variación porcentual MTD vs mismo mes año anterior. Un solo scan de la tabla usando agregación condicional por YYYYMM. BLANK() en DAX = NULL en SQL (SUM sin filas devuelve NULL). DIVIDE(..., 0) = división segura → NULLIF.",
+        "dax_resolution": {
+          "BLANK()":      "SUM sin filas devuelve NULL en SQL — mismo comportamiento",
+          "DIVIDE(a,b,0)":"equivale a a / NULLIF(b, 0) — retorna NULL si b = 0",
+          "OR(a,b)":      "CASE WHEN ... IS NULL OR ... IS NULL THEN NULL ELSE ... END"
+        },
+        "metric_map": {
+          "Valor":    { "mtd_col": "ventas",   "ya_col": "ventas",   "needs_products_join": false, "verified": true },
+          "Unidades": { "mtd_col": "unidades", "ya_col": "unidades", "needs_products_join": false, "verified": true },
+          "Kilos":    { "mtd_col": "TODO",     "ya_col": "TODO",     "needs_products_join": true }
+        },
+        "templates": {
+          "Valor": "SELECT\n  {dimensions}\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas END)\n  / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.ventas END), 0)\n  - 1 AS var_YA_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\n{group_by}",
+          "Unidades": "SELECT\n  {dimensions}\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades END)\n  / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.unidades END), 0)\n  - 1 AS var_YA_Azure\nFROM prod_etl.gold.vima_dashboard_daily d\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\n{group_by}",
+          "Kilos": "TODO: requiere tabla de productos"
+        },
+        "params": {
+          "yyyymm_actual": "ej: 202605 — mes actual (numerador)",
+          "yyyymm_ly":     "ej: 202505 — mismo mes año anterior (denominador)",
+          "dimensions":    "mismas columnas que MTD y YA_A para comparación coherente",
+          "group_by":      "GROUP BY ... o vacío si es escalar"
+        },
+        "translation_notes": [
+          "Un solo WHERE ... IN (...) escanea ambos meses en una sola pasada — más eficiente que dos subqueries.",
+          "CASE WHEN sin ELSE devuelve NULL para filas del otro mes, lo que hace que SUM ignore esas filas.",
+          "Si un mes no tiene datos, SUM devuelve NULL → la división retorna NULL → equivale a BLANK() en DAX.",
+          "El resultado es un decimal (ej: 0.394 = 39.4%). El agente aplica formato *100 + '%' al presentar."
+        ]
+      }
+    }
+
+  ]
+}
