@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "1.6.0",
   "model_source": "18062026.vpax",
   "description": "Biblia de medidas: equivalentes SQL (Databricks) de las medidas DAX del modelo VIMA Sellout. Cada entry es autónomo y parametrizable por el agente.",
   "dialect": "databricks_sql",
@@ -35,6 +35,51 @@
         "%":     "0.0% (multiplicar x100 al presentar)"
       },
       "verified": true
+    },
+
+    "Venta Acumulada ({mes_inicio}-{mes_fin}) Cadena/Formato": {
+      "page":          "Business Review / Mensual — Mes Anterior",
+      "subtitle":      "(Acumulado Ene–{mes_fin_nombre} {anio})",
+      "title_note":    "El rango siempre arranca en Enero y termina en el mes anterior al reporte. Ej: reporte de junio 2026 → 'Ene-Mayo'.",
+      "query_pattern": "table_by_retailer_categoria_ytd",
+      "params": {
+        "ytd_start_yyyymm":    "YYYY * 100 + 1  — Enero del año actual. Ej: 202601",
+        "ytd_end_yyyymm":      "yyyymm del mes anterior al reporte (= yyyymm_actual de la tabla mensual). Ej: 202605",
+        "ytd_start_ly_yyyymm": "(YYYY - 1) * 100 + 1  — Enero del año anterior. Ej: 202501",
+        "ytd_end_ly_yyyymm":   "ytd_end_yyyymm - 100  — Mismo mes de cierre, año anterior. Ej: 202505"
+      },
+      "columns_display": {
+        "retailer":          "Cadena",
+        "categoria":         "Formato",
+        "YTD_YA1_Valor":     "Acum. Ant $",
+        "YTD_Valor":         "Acum. Act $",
+        "YTD_vs_YA1_Valor":  "% var $",
+        "YTD_YA1_Uni":       "Acum Ant Uni",
+        "YTD_Uni":           "Acum Act Uni",
+        "YTD_vs_YA1_Uni":    "% var Uni",
+        "YTD_YA1_Kg":        "Acum. Ant Kg",
+        "YTD_Kg":            "Acum. Act Kg",
+        "YTD_vs_YA1_Kg":     "%Var KG"
+      },
+      "pbi_measure_map": {
+        "YTD_YA1_Valor":    "YTD YA1_Azure",
+        "YTD_Valor":        "YTD_Azure",
+        "YTD_vs_YA1_Valor": "YTD vs YA1_Azure",
+        "YTD_YA1_Uni":      "YTD YA1 Units_Azure",
+        "YTD_Uni":          "YTD Units_Azure",
+        "YTD_vs_YA1_Uni":   "YTD vs YA1 Units_Azure",
+        "YTD_YA1_Kg":       "YTD YA1 Kg_Azure",
+        "YTD_Kg":           "YTD Kg_Azure",
+        "YTD_vs_YA1_Kg":    "YTD vs YA1 KgAzure"
+      },
+      "format": {
+        "Valor": "#,0 (pesos)",
+        "Uni":   "#,0 (unidades)",
+        "Kg":    "#,0 (kg)",
+        "%":     "0.0% (multiplicar x100 al presentar)"
+      },
+      "verified": true,
+      "verification_notes": "Valores $ / Uni / Kg cuadran al 100% contra PBI (jun-2026, rango Ene-May). Única diferencia: % var Uni / % var Kg muestran NULL en SQL vs -100% en PBI cuando el año anterior es blank — comportamiento de DAX DIVIDE(n, BLANK(), 0)-1 no replicable sin lógica extra. Aceptado como equivalente."
     }
   },
 
@@ -67,6 +112,26 @@
       "columns": ["retailer", "categoria", "YA_A_Valor", "CM_Valor", "var_YA_Valor", "YA_A_Uni", "CM_Uni", "var_YA_Uni", "YA_A_Kg", "CM_Kg", "var_YA_Kg"],
       "notes": ["Kg = d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE). Contenido_del_Empaque está en kg. p.Gramaje siempre NULL — no usar.", "NULL en columnas YA = sin venta ese retailer/categoría en el año anterior — equivale a BLANK() en PBI."],
       "template": "SELECT\n  d.retailer,\n  p.category                                                                                        AS categoria,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.ventas    END)           AS YA_A_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END)           AS CM_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.ventas    END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.ventas END), 0)\n    - 1                                                                                             AS var_YA_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}     THEN d.unidades  END)           AS YA_A_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades  END)           AS CM_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual} THEN d.unidades  END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly} THEN d.unidades END), 0)\n    - 1                                                                                             AS var_YA_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                           AS YA_A_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                           AS CM_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_actual}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) = {yyyymm_ly}\n                      THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END), 0)\n    - 1                                                                                             AS var_YA_Kg\nFROM prod_etl.gold.vima_dashboard_daily d\nJOIN prod_etl.segmentation.products p ON d.id_product_retailer = p.id_product_retailer\nJOIN prod_etl.segmentation.stores   s ON d.id_store = s.id_store\nWHERE CAST(d.numeric_day / 100 AS INT) IN ({yyyymm_actual}, {yyyymm_ly})\n  AND s.store_channel != 'Cedis'\n  AND p.category != 'OUT'\nGROUP BY d.retailer, p.category\nORDER BY d.retailer, p.category"
+    },
+
+    "table_by_retailer_categoria_ytd": {
+      "description": "9 columnas YTD ($ + Uni + Kg acumulado Ene→mes_cierre) por Retailer → Categoría. Replica la tabla 'Venta Acumulada (Ene-XXX) Cadena / Formato'. Filtros: Formato ≠ Cedis, Categoría ≠ OUT.",
+      "available_now": true,
+      "verified": true,
+      "columns": ["retailer", "categoria", "YTD_YA1_Valor", "YTD_Valor", "YTD_vs_YA1_Valor", "YTD_YA1_Uni", "YTD_Uni", "YTD_vs_YA1_Uni", "YTD_YA1_Kg", "YTD_Kg", "YTD_vs_YA1_Kg"],
+      "notes": [
+        "YTD = acumulado desde Enero hasta el mes de cierre del año. BETWEEN en YYYYMM es equivalente a la suma mensual acumulada.",
+        "Año anterior: mismo rango de meses, year - 1. Parámetros: ytd_start_yyyymm, ytd_end_yyyymm, ytd_start_ly_yyyymm, ytd_end_ly_yyyymm.",
+        "El WHERE usa OR para incluir ambos períodos (año actual y año anterior) en un solo scan.",
+        "NULL en columnas YA = sin venta ese retailer/categoría en el año anterior — equivale a BLANK() en PBI."
+      ],
+      "params": {
+        "ytd_start_yyyymm":    "Enero del año actual. Ej: 202601",
+        "ytd_end_yyyymm":      "Último mes completo del año actual (= mes anterior al reporte). Ej: 202605",
+        "ytd_start_ly_yyyymm": "Enero del año anterior. Ej: 202501",
+        "ytd_end_ly_yyyymm":   "Mismo mes de cierre, año anterior. Ej: 202505"
+      },
+      "template": "SELECT\n  d.retailer,\n  p.category                                                                                          AS categoria,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n           THEN d.ventas    END)                                                                      AS YTD_YA1_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.ventas    END)                                                                      AS YTD_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.ventas    END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n                      THEN d.ventas    END), 0)\n    - 1                                                                                               AS YTD_vs_YA1_Valor,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n           THEN d.unidades  END)                                                                      AS YTD_YA1_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.unidades  END)                                                                      AS YTD_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.unidades  END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n                      THEN d.unidades  END), 0)\n    - 1                                                                                               AS YTD_vs_YA1_Uni,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                             AS YTD_YA1_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)                             AS YTD_Kg,\n  SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}    AND {ytd_end_yyyymm}\n           THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END)\n    / NULLIF(SUM(CASE WHEN CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n                      THEN d.unidades * CAST(p.Contenido_del_Empaque AS DOUBLE) END), 0)\n    - 1                                                                                               AS YTD_vs_YA1_Kg\nFROM prod_etl.gold.vima_dashboard_daily d\nJOIN prod_etl.segmentation.products p ON d.id_product_retailer = p.id_product_retailer\nJOIN prod_etl.segmentation.stores   s ON d.id_store = s.id_store\nWHERE (\n    CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_ly_yyyymm} AND {ytd_end_ly_yyyymm}\n    OR CAST(d.numeric_day / 100 AS INT) BETWEEN {ytd_start_yyyymm}  AND {ytd_end_yyyymm}\n  )\n  AND s.store_channel != 'Cedis'\n  AND p.category != 'OUT'\nGROUP BY d.retailer, p.category\nORDER BY d.retailer, p.category"
     }
   },
 
